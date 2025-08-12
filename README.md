@@ -7,22 +7,13 @@
 - **다양한 파일 형식 지원**: DICOM(.dcm), JPG(.jpg/.jpeg), PNG(.png)
 - **직관적인 키포인트 편집**: 마우스 클릭으로 포인트 추가, 드래그로 이동
 - **키포인트 순서 관리**: 드래그 앤 드롭으로 순서 변경, 삭제/교환 기능
-- **DICOM 뷰어**: 자동 전처리, 팬/줌/회전/플립 지원
 - **자동 저장**: 이미지 전환 시 자동 저장, 원본 파일 보존
 - **폴더 탐색**: 대량 이미지 처리, 자연 정렬 지원
 - **단일 실행 파일**: PyInstaller로 빌드된 독립 실행 파일
 
 ## 설치 및 실행
 
-### 방법 1: 실행 파일 사용 (권장)
-
-1. `keypoint_labeler.exe` 파일을 다운로드
-2. 더블클릭으로 실행
-3. 별도의 Python 설치 불필요
-
-### 방법 2: 소스 코드 실행
-
-#### 1. Python 환경 설정
+### Python 환경 설정
 
 Python 3.8 이상이 필요합니다.
 
@@ -37,16 +28,55 @@ keypoint_env\Scripts\activate
 source keypoint_env/bin/activate
 ```
 
-#### 2. 의존성 설치
+### 의존성 설치
 
 ```bash
 pip install -r requirements.txt
 ```
 
-#### 3. 실행
+### 실행
 
 ```bash
 python app.py
+```
+
+### 실행 파일 빌드 (선택사항)
+
+독립 실행 파일을 만들고 싶다면 아래 빌드 방법을 참고하세요:
+
+#### Windows
+
+```bash
+# 가상환경에서 빌드 (권장)
+python -m venv keypoint_env
+keypoint_env\Scripts\activate
+pip install -r requirements.txt
+pip install pyinstaller
+.\build.bat
+```
+
+#### Linux/Mac
+
+```bash
+# 가상환경에서 빌드 (권장)
+python -m venv keypoint_env
+source keypoint_env/bin/activate
+pip install -r requirements.txt
+pip install pyinstaller
+./build.sh
+```
+
+#### 빌드 최적화
+
+파일 크기를 줄이려면 가상환경을 사용하여 필요한 라이브러리만 포함하세요:
+
+```bash
+# 가상환경 사용 (파일 크기 최적화)
+python -m venv keypoint_env
+keypoint_env\Scripts\activate
+pip install -r requirements.txt
+pip install pyinstaller
+pyinstaller --onefile --windowed --exclude-module torch --exclude-module tensorflow --exclude-module sklearn --exclude-module matplotlib --exclude-module pandas --name keypoint_labeler app.py
 ```
 
 ## 사용법
@@ -73,13 +103,6 @@ python app.py
 | ←→↑↓ | 선택된 포인트 이동 (1px 단위) |
 | Shift+←→↑↓ | 선택된 포인트 이동 (10px 단위) |
 | Delete | 선택된 포인트 삭제 |
-
-### 뷰어 기능
-
-- **이미지 맞춤**: 창 크기에 맞춰 자동 조정
-- **확대/축소**: Ctrl + 마우스 휠
-- **스크롤**: 일반 마우스 휠 (수직 스크롤)
-- **자동 저장**: 이미지 전환 시 자동 저장 (설정 가능)
 
 ## JSON 파일 형식
 
@@ -173,9 +196,6 @@ pyinstaller --onefile --windowed --exclude-module torch --exclude-module tensorf
    - 파일 쓰기 권한 확인
    - 디스크 공간 확인
 
-4. **실행 파일이 작동하지 않음**
-   - Windows Defender가 차단했는지 확인
-   - 관리자 권한으로 실행 시도
 
 ### 로그 확인
 
@@ -198,8 +218,6 @@ pyinstaller --onefile --windowed --exclude-module torch --exclude-module tensorf
 - ✅ 1-based 키포인트 인덱싱
 - ✅ 드래그 앤 드롭 순서 변경
 - ✅ 자동 저장 기능
-- ✅ 최적화된 빌드 (파일 크기 감소)
-- ✅ 불필요한 UI 요소 제거
 
 ## 기여하기
 
