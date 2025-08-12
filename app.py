@@ -29,6 +29,9 @@ from viewer.image_loader import ImageLoader
 from viewer.json_io import JSONIO
 from viewer.tools import Tools
 
+# 로그 디렉터리 생성
+os.makedirs('logs', exist_ok=True)
+
 # 로깅 설정
 logging.basicConfig(
     level=logging.INFO,
@@ -39,9 +42,6 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
-
-# 로그 디렉터리 생성
-os.makedirs('logs', exist_ok=True)
 
 
 class KeypointLabeler(QMainWindow):
@@ -58,7 +58,6 @@ class KeypointLabeler(QMainWindow):
         self.settings = self.load_settings()
         
         self.init_ui()
-        self.setup_connections()
         self.load_recent_folder()
         
     def init_ui(self):
@@ -98,6 +97,9 @@ class KeypointLabeler(QMainWindow):
         self.status_bar = QStatusBar()
         self.setStatusBar(self.status_bar)
         self.status_bar.showMessage("준비됨")
+        
+        # 시그널 연결 (UI 생성 후에 호출)
+        self.setup_connections()
         
     def create_side_panel(self):
         """사이드 패널 생성"""
@@ -306,7 +308,7 @@ class KeypointLabeler(QMainWindow):
         self.clear_all_btn.clicked.connect(self.clear_all_keypoints)
         self.swap_points_btn.clicked.connect(self.swap_selected_points)
         
-        self.show_labels_cb.toggled.connect(self.canvas.set_show_labels)
+        self.show_labels_cb.toggled.connect(lambda checked: self.canvas.set_show_labels(checked))
         self.auto_save_cb.toggled.connect(self.set_auto_save)
         
         # DICOM 컨트롤 시그널

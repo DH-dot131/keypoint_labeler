@@ -19,11 +19,10 @@ Python 3.8 이상이 필요합니다.
 
 ```bash
 # 가상환경 생성 (권장)
-python -m venv venv
-source venv/bin/activate  # Linux/Mac
-# 또는
-venv\Scripts\activate     # Windows
+conda create -n keypoint_labeler python=3.10 # 가상 환경 만들기기
 ```
+# 가상환경 실행시키기
+conda activate keypoint_labeler
 
 ### 2. 의존성 설치
 
