@@ -141,6 +141,8 @@ class KeypointLabeler(QMainWindow):
         self.auto_save_cb.setChecked(self.auto_save)
         viewer_layout.addWidget(self.auto_save_cb, 0, 1)
         
+        layout.addWidget(viewer_group)  # 이 부분이 중요!
+        
         # DICOM 컨트롤 (초기에는 숨김)
         self.dicom_group = QGroupBox("DICOM 설정")
         self.dicom_layout = QGridLayout(self.dicom_group)
