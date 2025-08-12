@@ -5,32 +5,45 @@
 ## 주요 기능
 
 - **다양한 파일 형식 지원**: DICOM(.dcm), JPG(.jpg/.jpeg), PNG(.png)
-- **키포인트 편집**: 마우스 클릭으로 포인트 추가/이동, 키보드로 정밀 조정
-- **순서 관리**: 드래그 앤 드롭으로 키포인트 순서 변경, 삽입/삭제/교환
-- **DICOM 뷰어**: Window/Level 조정, 프리셋 지원, 인버트/회전/플립
-- **자동 저장**: 이미지 전환 시 자동 저장, 백업 파일 생성
+- **직관적인 키포인트 편집**: 마우스 클릭으로 포인트 추가, 드래그로 이동
+- **키포인트 순서 관리**: 드래그 앤 드롭으로 순서 변경, 삭제/교환 기능
+- **DICOM 뷰어**: 자동 전처리, 팬/줌/회전/플립 지원
+- **자동 저장**: 이미지 전환 시 자동 저장, 원본 파일 보존
 - **폴더 탐색**: 대량 이미지 처리, 자연 정렬 지원
+- **단일 실행 파일**: PyInstaller로 빌드된 독립 실행 파일
 
-## 설치 방법
+## 설치 및 실행
 
-### 1. Python 환경 설정
+### 방법 1: 실행 파일 사용 (권장)
+
+1. `keypoint_labeler.exe` 파일을 다운로드
+2. 더블클릭으로 실행
+3. 별도의 Python 설치 불필요
+
+### 방법 2: 소스 코드 실행
+
+#### 1. Python 환경 설정
 
 Python 3.8 이상이 필요합니다.
 
 ```bash
 # 가상환경 생성 (권장)
-conda create -n keypoint_labeler python=3.10 # 가상 환경 만들기기
-```
-# 가상환경 실행시키기
-conda activate keypoint_labeler
+python -m venv keypoint_env
 
-### 2. 의존성 설치
+# 가상환경 활성화
+# Windows
+keypoint_env\Scripts\activate
+# Linux/Mac
+source keypoint_env/bin/activate
+```
+
+#### 2. 의존성 설치
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### 3. 실행
+#### 3. 실행
 
 ```bash
 python app.py
@@ -43,37 +56,30 @@ python app.py
 - **포인트 추가**: 이미지 영역 클릭
 - **포인트 선택**: 기존 포인트 클릭
 - **포인트 이동**: 선택된 포인트 드래그
-- **포인트 삭제**: 포인트 선택 후 Delete 키
+- **포인트 삭제**: 포인트 선택 후 "삭제" 버튼 또는 Delete 키
 - **정밀 이동**: 포인트 선택 후 화살표 키 (Shift: 10px 단위)
 
-### 마우스 모드
+### 키포인트 관리
 
-- **일반 모드**: 포인트 선택/추가
-- **팬 모드**: Ctrl + 드래그
-- **DICOM Window/Level**: Shift + 드래그 (DICOM 파일만)
+- **순서 변경**: 사이드 패널에서 드래그 앤 드롭
+- **교환**: 두 개 포인트 선택 후 "교환" 버튼
+- **전체 삭제**: "전체 삭제" 버튼
+- **라벨 표시**: "라벨 표시" 체크박스로 번호 표시/숨김
 
 ### 키보드 단축키
 
 | 단축키 | 기능 |
 |--------|------|
-| Ctrl+O | 파일 열기 |
-| Ctrl+Shift+O | 폴더 열기 |
-| Ctrl+S | 저장 |
-| Ctrl+Shift+S | 전체 저장 |
-| Ctrl+Z | 실행 취소 |
-| Ctrl+Y | 다시 실행 |
+| ←→↑↓ | 선택된 포인트 이동 (1px 단위) |
+| Shift+←→↑↓ | 선택된 포인트 이동 (10px 단위) |
 | Delete | 선택된 포인트 삭제 |
-| Ctrl++ | 확대 |
-| Ctrl+- | 축소 |
-| Ctrl+0 | 창에 맞춤 |
-| Ctrl+R | 90도 회전 |
 
-### DICOM 뷰어 기능
+### 뷰어 기능
 
-- **Window/Level 조정**: 슬라이더 또는 마우스 드래그
-- **프리셋**: Soft Tissue, Bone, Lung, General
-- **인버트**: 이미지 반전
-- **회전/플립**: 이미지 변환
+- **이미지 맞춤**: 창 크기에 맞춰 자동 조정
+- **확대/축소**: Ctrl + 마우스 휠
+- **스크롤**: 일반 마우스 휠 (수직 스크롤)
+- **자동 저장**: 이미지 전환 시 자동 저장 (설정 가능)
 
 ## JSON 파일 형식
 
@@ -91,7 +97,8 @@ python app.py
 
 - 좌표는 정수 픽셀 단위
 - 이미지 좌상단이 원점 (0, 0)
-- 순서가 중요함 (인덱스 0부터 시작)
+- UI에서는 1부터 시작하는 번호로 표시
+- 원본 이미지와 동일한 폴더에 `.json` 확장자로 저장
 
 ## 프로젝트 구조
 
@@ -100,48 +107,75 @@ keypoint_labeler/
 ├── app.py                 # 메인 애플리케이션
 ├── viewer/                # 뷰어 모듈
 │   ├── __init__.py
-│   ├── canvas.py          # 이미지 캔버스
-│   ├── dicom_loader.py    # DICOM 파일 로더
+│   ├── canvas.py          # 이미지 캔버스 및 상호작용
+│   ├── dicom_loader.py    # DICOM 파일 로더 (전처리 포함)
 │   ├── image_loader.py    # 일반 이미지 로더
 │   ├── json_io.py         # JSON 입출력
 │   └── tools.py           # 유틸리티 도구
-├── assets/                # 리소스 파일
 ├── logs/                  # 로그 파일 (자동 생성)
 ├── settings.json          # 설정 파일 (자동 생성)
 ├── requirements.txt       # 의존성 목록
+├── build.bat             # Windows 빌드 스크립트
+├── build.sh              # Linux/Mac 빌드 스크립트
 └── README.md             # 이 파일
 ```
 
 ## 빌드 방법
 
-### PyInstaller를 사용한 단일 실행 파일 생성
+### Windows
 
 ```bash
-# PyInstaller 설치
+# 가상환경에서 빌드 (권장)
+python -m venv keypoint_env
+keypoint_env\Scripts\activate
+pip install -r requirements.txt
 pip install pyinstaller
+.\build.bat
+```
 
-# Windows
-pyinstaller --onefile --windowed --name keypoint_labeler app.py
+### Linux/Mac
 
-# Linux/Mac
-pyinstaller --onefile --name keypoint_labeler app.py
+```bash
+# 가상환경에서 빌드 (권장)
+python -m venv keypoint_env
+source keypoint_env/bin/activate
+pip install -r requirements.txt
+pip install pyinstaller
+./build.sh
+```
+
+### 빌드 최적화
+
+파일 크기를 줄이려면 가상환경을 사용하여 필요한 라이브러리만 포함하세요:
+
+```bash
+# 가상환경 사용 (파일 크기 최적화)
+python -m venv keypoint_env
+keypoint_env\Scripts\activate
+pip install -r requirements.txt
+pip install pyinstaller
+pyinstaller --onefile --windowed --exclude-module torch --exclude-module tensorflow --exclude-module sklearn --exclude-module matplotlib --exclude-module pandas --name keypoint_labeler app.py
 ```
 
 ## 문제 해결
 
 ### 일반적인 문제
 
-1. **DICOM 파일이 열리지 않음**
-   - pydicom 패키지가 제대로 설치되었는지 확인
+1. **DICOM 파일이 검은 화면으로 표시됨**
    - 파일이 손상되지 않았는지 확인
+   - 다른 DICOM 뷰어로 파일 확인
 
 2. **이미지가 표시되지 않음**
-   - PIL/Pillow 패키지 설치 확인
    - 파일 경로에 한글이 포함되어 있는지 확인
+   - 지원되는 파일 형식인지 확인 (.dcm, .jpg, .jpeg, .png)
 
-3. **메모리 부족 오류**
-   - 대용량 이미지의 경우 메모리 사용량 확인
-   - 이미지 크기 조정 고려
+3. **키포인트가 저장되지 않음**
+   - 파일 쓰기 권한 확인
+   - 디스크 공간 확인
+
+4. **실행 파일이 작동하지 않음**
+   - Windows Defender가 차단했는지 확인
+   - 관리자 권한으로 실행 시도
 
 ### 로그 확인
 
@@ -151,14 +185,32 @@ pyinstaller --onefile --name keypoint_labeler app.py
 
 - **Python 버전**: 3.8+
 - **GUI 프레임워크**: PyQt5
-- **이미지 처리**: PIL, NumPy
+- **이미지 처리**: PIL, NumPy, OpenCV
 - **DICOM 처리**: pydicom
+- **빌드 도구**: PyInstaller
 - **라이선스**: MIT
+
+## 주요 변경사항
+
+### v1.0 (현재)
+- ✅ DICOM 자동 전처리 (CLAHE 적용)
+- ✅ 직관적인 마우스 인터페이스
+- ✅ 1-based 키포인트 인덱싱
+- ✅ 드래그 앤 드롭 순서 변경
+- ✅ 자동 저장 기능
+- ✅ 최적화된 빌드 (파일 크기 감소)
+- ✅ 불필요한 UI 요소 제거
 
 ## 기여하기
 
 버그 리포트나 기능 요청은 이슈를 통해 제출해 주세요.
 
+자세한 기여 가이드는 [CONTRIBUTING.md](CONTRIBUTING.md)를 참고하세요.
+
 ## 라이선스
 
-이 프로젝트는 MIT 라이선스 하에 배포됩니다.
+이 프로젝트는 MIT 라이선스 하에 배포됩니다. 자세한 내용은 [LICENSE](LICENSE) 파일을 참고하세요.
+
+## 변경 이력
+
+프로젝트의 변경 이력은 [CHANGELOG.md](CHANGELOG.md)에서 확인할 수 있습니다.

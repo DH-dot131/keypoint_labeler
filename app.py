@@ -112,16 +112,15 @@ class KeypointLabeler(QMainWindow):
         
         self.keypoint_list = QListWidget()
         self.keypoint_list.setDragDropMode(QListWidget.InternalMove)
+        self.keypoint_list.setSelectionMode(QListWidget.ExtendedSelection)  # 확장 선택 모드 (Ctrl+클릭, Shift+클릭 지원)
         keypoint_layout.addWidget(self.keypoint_list)
         
         # 키포인트 버튼들
         button_layout = QHBoxLayout()
-        self.add_point_btn = QPushButton("추가")
         self.delete_point_btn = QPushButton("삭제")
         self.clear_all_btn = QPushButton("전체 삭제")
         self.swap_points_btn = QPushButton("교환")
         
-        button_layout.addWidget(self.add_point_btn)
         button_layout.addWidget(self.delete_point_btn)
         button_layout.addWidget(self.clear_all_btn)
         button_layout.addWidget(self.swap_points_btn)
@@ -143,27 +142,7 @@ class KeypointLabeler(QMainWindow):
         
         layout.addWidget(viewer_group)  # 이 부분이 중요!
         
-        # DICOM 컨트롤 (초기에는 숨김)
-        self.dicom_group = QGroupBox("DICOM 설정")
-        self.dicom_layout = QGridLayout(self.dicom_group)
-        
-        self.window_level_slider = QSlider(Qt.Horizontal)
-        self.window_width_slider = QSlider(Qt.Horizontal)
-        self.window_level_label = QLabel("Window Level: 0")
-        self.window_width_label = QLabel("Window Width: 0")
-        
-        self.dicom_layout.addWidget(self.window_level_label, 0, 0)
-        self.dicom_layout.addWidget(self.window_level_slider, 0, 1)
-        self.dicom_layout.addWidget(self.window_width_label, 1, 0)
-        self.dicom_layout.addWidget(self.window_width_slider, 1, 1)
-        
-        self.dicom_preset_combo = QComboBox()
-        self.dicom_preset_combo.addItems(["Soft Tissue", "Bone", "Lung", "General"])
-        self.dicom_layout.addWidget(QLabel("프리셋:"), 2, 0)
-        self.dicom_layout.addWidget(self.dicom_preset_combo, 2, 1)
-        
-        self.dicom_group.setVisible(False)
-        layout.addWidget(self.dicom_group)
+
         
         # 파일 네비게이션
         nav_group = QGroupBox("파일 탐색")
@@ -305,7 +284,6 @@ class KeypointLabeler(QMainWindow):
         self.keypoint_list.itemSelectionChanged.connect(self.on_keypoint_selection_changed)
         self.keypoint_list.model().rowsMoved.connect(self.on_keypoint_order_changed)
         
-        self.add_point_btn.clicked.connect(self.add_keypoint_manual)
         self.delete_point_btn.clicked.connect(self.delete_selected_point)
         self.clear_all_btn.clicked.connect(self.clear_all_keypoints)
         self.swap_points_btn.clicked.connect(self.swap_selected_points)
@@ -313,10 +291,7 @@ class KeypointLabeler(QMainWindow):
         self.show_labels_cb.toggled.connect(lambda checked: self.canvas.set_show_labels(checked))
         self.auto_save_cb.toggled.connect(self.set_auto_save)
         
-        # DICOM 컨트롤 시그널
-        self.window_level_slider.valueChanged.connect(self.on_window_level_changed)
-        self.window_width_slider.valueChanged.connect(self.on_window_width_changed)
-        self.dicom_preset_combo.currentTextChanged.connect(self.on_dicom_preset_changed)
+
         
         # 네비게이션 시그널
         self.prev_btn.clicked.connect(self.prev_file)
@@ -347,10 +322,8 @@ class KeypointLabeler(QMainWindow):
             # 이미지 로드
             if file_path.suffix.lower() == '.dcm':
                 self.canvas.load_dicom(str(file_path))
-                self.dicom_group.setVisible(True)
             else:
                 self.canvas.load_image(str(file_path))
-                self.dicom_group.setVisible(False)
             
             # JSON 로드
             json_path = file_path.with_suffix('.json')
@@ -364,7 +337,7 @@ class KeypointLabeler(QMainWindow):
             self.canvas.set_keypoints(self.keypoints)
             self.update_status()
             
-            # 최근 폴더 저장
+            # 최근 폴더 저장 (문자열로 전달)
             self.save_recent_folder(str(file_path.parent))
             
         except Exception as e:
@@ -375,7 +348,7 @@ class KeypointLabeler(QMainWindow):
         """폴더 로드"""
         try:
             folder_path = Path(folder_path)
-            self.current_folder = str(folder_path)
+            self.current_folder = str(folder_path)  # Path 객체를 문자열로 변환
             
             # 지원 파일 확장자
             extensions = {'.dcm', '.jpg', '.jpeg', '.png'}
@@ -395,8 +368,8 @@ class KeypointLabeler(QMainWindow):
             else:
                 QMessageBox.information(self, "알림", "지원하는 이미지 파일이 없습니다.")
                 
-            # 최근 폴더 저장
-            self.save_recent_folder(folder_path)
+            # 최근 폴더 저장 (문자열로 전달)
+            self.save_recent_folder(str(folder_path))
             
         except Exception as e:
             QMessageBox.critical(self, "오류", f"폴더를 로드할 수 없습니다: {str(e)}")
@@ -454,18 +427,13 @@ class KeypointLabeler(QMainWindow):
                 
         self.status_bar.showMessage(f"{saved_count}개 파일 저장됨", 3000)
         
-    def add_keypoint(self, x: int, y: int):
-        """키포인트 추가"""
-        self.keypoints.append([x, y])
+    def add_keypoint(self, index: int, x: int, y: int):
+        """키포인트 추가 (UI 업데이트만)"""
+        # canvas에서 이미 키포인트를 추가했으므로 UI만 업데이트
         self.update_keypoint_list()
         self.canvas.set_keypoints(self.keypoints)
         
-    def add_keypoint_manual(self):
-        """수동으로 키포인트 추가"""
-        # 캔버스 중앙에 추가
-        center_x = self.canvas.width() // 2
-        center_y = self.canvas.height() // 2
-        self.add_keypoint(center_x, center_y)
+
         
     def move_keypoint(self, index: int, x: int, y: int):
         """키포인트 이동"""
@@ -494,7 +462,7 @@ class KeypointLabeler(QMainWindow):
         
     def swap_selected_points(self):
         """선택된 두 포인트 교환"""
-        selected_rows = [item.row() for item in self.keypoint_list.selectedItems()]
+        selected_rows = [self.keypoint_list.row(item) for item in self.keypoint_list.selectedItems()]
         if len(selected_rows) == 2:
             i, j = selected_rows
             self.keypoints[i], self.keypoints[j] = self.keypoints[j], self.keypoints[i]
@@ -505,7 +473,7 @@ class KeypointLabeler(QMainWindow):
         """키포인트 리스트 업데이트"""
         self.keypoint_list.clear()
         for i, (x, y) in enumerate(self.keypoints):
-            self.keypoint_list.addItem(f"{i}: ({x}, {y})")
+            self.keypoint_list.addItem(f"{i+1}: ({x}, {y})")
             
     def on_keypoint_selection_changed(self):
         """키포인트 선택 변경"""
@@ -519,7 +487,7 @@ class KeypointLabeler(QMainWindow):
         new_keypoints = []
         for i in range(self.keypoint_list.count()):
             item_text = self.keypoint_list.item(i).text()
-            # "0: (x, y)" 형식에서 좌표 추출
+            # "1: (x, y)" 형식에서 좌표 추출
             coord_str = item_text.split(': ')[1].strip('()')
             x, y = map(int, coord_str.split(', '))
             new_keypoints.append([x, y])
@@ -531,22 +499,7 @@ class KeypointLabeler(QMainWindow):
         """자동 저장 설정"""
         self.auto_save = enabled
         
-    def on_window_level_changed(self, value: int):
-        """DICOM Window Level 변경"""
-        if hasattr(self.canvas, 'set_window_level'):
-            self.canvas.set_window_level(value)
-            self.window_level_label.setText(f"Window Level: {value}")
-            
-    def on_window_width_changed(self, value: int):
-        """DICOM Window Width 변경"""
-        if hasattr(self.canvas, 'set_window_width'):
-            self.canvas.set_window_width(value)
-            self.window_width_label.setText(f"Window Width: {value}")
-            
-    def on_dicom_preset_changed(self, preset: str):
-        """DICOM 프리셋 변경"""
-        if hasattr(self.canvas, 'set_dicom_preset'):
-            self.canvas.set_dicom_preset(preset)
+
             
     def update_status(self):
         """상태바 업데이트"""
@@ -564,16 +517,28 @@ class KeypointLabeler(QMainWindow):
         try:
             if os.path.exists('settings.json'):
                 with open('settings.json', 'r', encoding='utf-8') as f:
-                    return json.load(f)
+                    content = f.read().strip()
+                    if content:  # 파일이 비어있지 않은 경우에만 파싱
+                        return json.loads(content)
+        except json.JSONDecodeError as e:
+            logger.error(f"설정 파일 JSON 파싱 오류: {e}")
+            # 손상된 설정 파일 백업 후 새로 시작
+            try:
+                if os.path.exists('settings.json'):
+                    os.rename('settings.json', 'settings.json.corrupted')
+                    logger.info("손상된 설정 파일을 settings.json.corrupted로 백업했습니다.")
+            except Exception as backup_error:
+                logger.error(f"설정 파일 백업 실패: {backup_error}")
         except Exception as e:
             logger.error(f"설정 로드 오류: {e}")
         return {}
         
+
     def save_settings(self):
         """설정 저장"""
         try:
             settings = {
-                'recent_folder': self.current_folder,
+                'recent_folder': str(self.current_folder) if self.current_folder else None,  # Path를 문자열로 변환
                 'auto_save': self.auto_save,
                 'window_geometry': {
                     'x': self.geometry().x(),
@@ -597,7 +562,11 @@ class KeypointLabeler(QMainWindow):
             
     def save_recent_folder(self, folder_path: str):
         """최근 폴더 저장"""
-        self.current_folder = folder_path
+        # Path 객체를 문자열로 변환
+        if isinstance(folder_path, Path):
+            self.current_folder = str(folder_path)
+        else:
+            self.current_folder = folder_path
         self.save_settings()
         
     def closeEvent(self, event):

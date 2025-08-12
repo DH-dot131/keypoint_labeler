@@ -17,7 +17,7 @@ class ImageCanvas(QWidget):
     """이미지 표시 및 키포인트 편집 캔버스"""
     
     # 시그널 정의
-    point_added = pyqtSignal(int, int)  # x, y
+    point_added = pyqtSignal(int, int, int)  # index, x, y
     point_moved = pyqtSignal(int, int, int)  # index, x, y
     point_selected = pyqtSignal(int)  # index
     
@@ -67,30 +67,37 @@ class ImageCanvas(QWidget):
             self.image = self.dicom_loader.get_image()
             self.is_dicom = True
             
+            # 디버깅: 이미지 정보 출력
+            print(f"DICOM 로드 완료: {file_path}")
+            print(f"이미지 shape: {self.image.shape}")
+            print(f"이미지 dtype: {self.image.dtype}")
+            print(f"이미지 min/max: {self.image.min()}/{self.image.max()}")
+            
             # DICOM 윈도우/레벨 설정
             self.window_level = self.dicom_loader.get_default_window_level()
             self.window_width = self.dicom_loader.get_default_window_width()
             
             self.update_display()
         except Exception as e:
+            print(f"DICOM 로드 오류: {e}")
             raise Exception(f"DICOM 로드 실패: {e}")
             
     def update_display(self):
         """화면 업데이트"""
         if self.image is None:
+            print("이미지가 None입니다")
             return
             
         # 이미지를 QPixmap으로 변환
         if self.is_dicom:
-            # DICOM 이미지 처리
-            processed_image = self.dicom_loader.apply_window_level(
-                self.image, self.window_level, self.window_width
-            )
-            self.pixmap = self.image_loader.numpy_to_qpixmap(processed_image)
+            # DICOM 이미지는 이미 preprocess_dicom으로 처리됨
+            print(f"DICOM 이미지 변환: shape={self.image.shape}, dtype={self.image.dtype}")
+            self.pixmap = self.image_loader.numpy_to_qpixmap(self.image)
         else:
             # 일반 이미지
             self.pixmap = self.image_loader.numpy_to_qpixmap(self.image)
             
+        print(f"QPixmap 생성 완료: {self.pixmap.width()}x{self.pixmap.height()}")
         self.update()
         
     def set_keypoints(self, keypoints: List[List[int]]):
@@ -151,16 +158,16 @@ class ImageCanvas(QWidget):
         
         # 이미지 그리기
         if self.pixmap:
-            # 줌 및 팬 적용
+            # 이미지를 위젯 크기에 맞춤
             scaled_pixmap = self.pixmap.scaled(
-                self.pixmap.size() * self.zoom_factor,
+                self.size(),
                 Qt.KeepAspectRatio,
                 Qt.SmoothTransformation
             )
             
             # 중앙 정렬
-            x = (self.width() - scaled_pixmap.width()) // 2 + self.pan_offset.x()
-            y = (self.height() - scaled_pixmap.height()) // 2 + self.pan_offset.y()
+            x = (self.width() - scaled_pixmap.width()) // 2
+            y = (self.height() - scaled_pixmap.height()) // 2
             
             painter.drawPixmap(x, y, scaled_pixmap)
             
@@ -206,43 +213,20 @@ class ImageCanvas(QWidget):
             if self.show_labels:
                 painter.setPen(QPen(QColor(255, 255, 255), 1))
                 painter.setFont(QFont("Arial", 10))
-                painter.drawText(screen_x + 10, screen_y - 10, str(i))
+                painter.drawText(screen_x + 10, screen_y - 10, str(i+1))
                 
     def mousePressEvent(self, event: QMouseEvent):
         """마우스 클릭 이벤트"""
         if event.button() == Qt.LeftButton:
-            if event.modifiers() & Qt.ControlModifier:
-                # Ctrl+클릭: 팬 모드
-                self.mouse_mode = 'pan'
-            elif self.is_dicom and event.modifiers() & Qt.ShiftModifier:
-                # Shift+클릭: 윈도우/레벨 모드
-                self.mouse_mode = 'window_level'
-            else:
-                # 일반 클릭: 포인트 선택/추가
-                self.mouse_mode = 'select'
-                self.handle_point_click(event.pos())
+            # 포인트 선택/추가
+            self.mouse_mode = 'select'
+            self.handle_point_click(event.pos())
                 
         self.last_mouse_pos = event.pos()
         
     def mouseMoveEvent(self, event: QMouseEvent):
         """마우스 이동 이벤트"""
-        if self.mouse_mode == 'pan' and event.buttons() & Qt.LeftButton:
-            # 팬 처리
-            delta = event.pos() - self.last_mouse_pos
-            self.pan_offset += delta
-            self.update()
-        elif self.mouse_mode == 'window_level' and event.buttons() & Qt.LeftButton and self.is_dicom:
-            # 윈도우/레벨 처리
-            delta = event.pos() - self.last_mouse_pos
-            self.window_width += delta.x()
-            self.window_level += delta.y()
-            
-            # 범위 제한
-            self.window_width = max(1, min(4000, self.window_width))
-            self.window_level = max(-2000, min(2000, self.window_level))
-            
-            self.update_display()
-        elif self.mouse_mode == 'select' and event.buttons() & Qt.LeftButton and self.selected_point >= 0:
+        if self.mouse_mode == 'select' and event.buttons() & Qt.LeftButton and self.selected_point >= 0:
             # 포인트 드래그
             self.handle_point_drag(event.pos())
             
@@ -307,10 +291,10 @@ class ImageCanvas(QWidget):
             self.selected_point = closest_point
             self.point_selected.emit(closest_point)
         else:
-            # 새 포인트 추가
+            # 새 포인트 자동 추가
             self.keypoints.append([image_pos[0], image_pos[1]])
             self.selected_point = len(self.keypoints) - 1
-            self.point_added.emit(image_pos[0], image_pos[1])
+            self.point_added.emit(self.selected_point, image_pos[0], image_pos[1])
             
         self.update()
         
@@ -361,18 +345,24 @@ class ImageCanvas(QWidget):
         if not self.pixmap:
             return None
             
+        # 이미지를 위젯 크기에 맞춘 크기 계산
+        scaled_pixmap = self.pixmap.scaled(
+            self.size(),
+            Qt.KeepAspectRatio,
+            Qt.SmoothTransformation
+        )
+        
         # 이미지 영역 계산
-        scaled_size = self.pixmap.size() * self.zoom_factor
-        image_x = (self.width() - scaled_size.width()) // 2 + self.pan_offset.x()
-        image_y = (self.height() - scaled_size.height()) // 2 + self.pan_offset.y()
+        image_x = (self.width() - scaled_pixmap.width()) // 2
+        image_y = (self.height() - scaled_pixmap.height()) // 2
         
         # 이미지 영역 내인지 확인
-        if (image_x <= screen_pos.x() <= image_x + scaled_size.width() and
-            image_y <= screen_pos.y() <= image_y + scaled_size.height()):
+        if (image_x <= screen_pos.x() <= image_x + scaled_pixmap.width() and
+            image_y <= screen_pos.y() <= image_y + scaled_pixmap.height()):
             
             # 상대 좌표 계산
-            rel_x = (screen_pos.x() - image_x) / self.zoom_factor
-            rel_y = (screen_pos.y() - image_y) / self.zoom_factor
+            rel_x = (screen_pos.x() - image_x) / scaled_pixmap.width() * self.pixmap.width()
+            rel_y = (screen_pos.y() - image_y) / scaled_pixmap.height() * self.pixmap.height()
             
             return (int(rel_x), int(rel_y))
             

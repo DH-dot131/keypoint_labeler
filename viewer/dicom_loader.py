@@ -7,6 +7,7 @@ import numpy as np
 from typing import Tuple, Optional
 import pydicom
 from pydicom.dataset import FileDataset
+import cv2
 
 
 class DICOMLoader:
@@ -21,6 +22,103 @@ class DICOMLoader:
         
         self.load_dicom()
         
+    @staticmethod
+    def _lutdata_to_array(raw_lut):
+        """
+        raw_lut 가 bytes/bytearray 인 경우에는 frombuffer 로,
+        list 혹은 ndarray 인 경우에는 np.array 로 변환합니다.
+        """
+        # 1) bytes-like
+        if isinstance(raw_lut, (bytes, bytearray)):
+            return np.frombuffer(raw_lut, dtype=np.uint16)
+        # 2) list 혹은 ndarray
+        elif isinstance(raw_lut, (list, np.ndarray)):
+            return np.array(raw_lut, dtype=np.uint16)
+        # 3) 기타 예외 처리
+        else:
+            # 만약 struct 로 unpack 해야 하는 특정 케이스가 있다면 여기에 추가
+            raise TypeError(f"Unsupported LUTData type: {type(raw_lut)}")
+    
+    @staticmethod
+    def preprocess_dicom(ds):
+        """
+        DICOM 파일을 보기 좋게 시각화하는 함수 (MONOCHROME + RGB 모두 대응)
+        """
+        pixel_array = ds.pixel_array
+
+        # 1) signed pixel 처리 (PixelRepresentation == 1)
+        if getattr(ds, 'PixelRepresentation', 0) == 1:
+            # BitsStored 비트로 signed 값이 들어옴
+            signed_max = 2 ** (ds.BitsStored - 1)
+            pixel_array = pixel_array - signed_max
+            
+        # Apply VOI LUT (if available and MONOCHROME)
+        if hasattr(ds, 'PhotometricInterpretation') and ds.PhotometricInterpretation.startswith('MONOCHROME'):
+            
+            # --- 기존 LUT, Windowing, Rescale 처리 ---
+            
+            if hasattr(ds, 'VOILUTSequence') and len(ds.VOILUTSequence) > 0:
+                voi_lut = ds.VOILUTSequence[0]
+                raw_bytes = voi_lut.LUTData               # b'\xc0\x00\xc0\x00...'
+                lut_data = DICOMLoader._lutdata_to_array(raw_bytes)
+                pixel_array = np.clip(pixel_array, 0, len(lut_data)-1)
+                pixel_array = lut_data[pixel_array]
+            
+            if hasattr(ds, 'RescaleSlope') and hasattr(ds, 'RescaleIntercept'):
+                slope = float(ds.RescaleSlope)
+                intercept = float(ds.RescaleIntercept)
+                pixel_array = pixel_array * slope + intercept
+                
+            elif hasattr(ds, 'WindowCenter') and hasattr(ds, 'WindowWidth'):
+                wc = float(ds.WindowCenter[0]) if isinstance(ds.WindowCenter, (list, pydicom.multival.MultiValue)) else float(ds.WindowCenter)
+                ww = float(ds.WindowWidth[0]) if isinstance(ds.WindowWidth, (list, pydicom.multival.MultiValue)) else float(ds.WindowWidth)
+                pixel_array = np.clip(pixel_array, wc - ww / 2, wc + ww / 2)
+            
+            # Normalize
+            if np.max(pixel_array) != np.min(pixel_array):
+                pixel_array = ((pixel_array - np.min(pixel_array)) * 255 / 
+                              (np.max(pixel_array) - np.min(pixel_array)))
+
+            pixel_array = pixel_array.astype(np.uint8)
+
+            # Invert MONOCHROME1
+            if ds.PhotometricInterpretation == 'MONOCHROME1':
+                pixel_array = 255 - pixel_array
+
+            # CLAHE (grayscale)
+            try:
+                clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+                pixel_array = clahe.apply(pixel_array)
+            except:
+                pass
+
+            return pixel_array
+
+        # RGB 처리
+        elif ds.PhotometricInterpretation == 'RGB':
+            # 보통 uint8로 되어 있음
+            if pixel_array.dtype != np.uint8:
+                pixel_array = ((pixel_array - np.min(pixel_array)) * 255 / 
+                              (np.max(pixel_array) - np.min(pixel_array))).astype(np.uint8)
+
+            # CLAHE 채널별 적용
+            try:
+                enhanced_channels = []
+                clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+                for c in range(3):
+                    enhanced = clahe.apply(pixel_array[:, :, c])
+                    enhanced_channels.append(enhanced)
+                pixel_array = np.stack(enhanced_channels, axis=-1)
+            except:
+                pass
+
+            return pixel_array
+
+        # 예상하지 못한 경우 → 기본 처리
+        else:
+            print(f"⚠️ Warning: Unknown PhotometricInterpretation: {ds.PhotometricInterpretation}")
+            return pixel_array
+        
     def load_dicom(self):
         """DICOM 파일 로드"""
         try:
@@ -32,7 +130,7 @@ class DICOMLoader:
             
     def get_image(self) -> np.ndarray:
         """처리된 이미지 반환"""
-        return self.pixel_array
+        return self.preprocess_dicom(self.dataset)
         
     def get_original_image(self) -> np.ndarray:
         """원본 이미지 반환"""

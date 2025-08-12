@@ -50,14 +50,19 @@ class JSONIO:
     @staticmethod
     def save_keypoints(file_path: str, keypoints: List[List[int]], 
                       additional_data: Optional[Dict[str, Any]] = None) -> bool:
-        """키포인트 JSON 파일 저장"""
+        """키포인트 JSON 파일 저장 (W, H 형식)"""
         try:
             # 백업 생성
             JSONIO._create_backup(file_path)
             
+            # W, H 형식으로 변환
+            w_h_keypoints = []
+            for x, y in keypoints:
+                w_h_keypoints.append([x, y])  # W=x, H=y
+            
             # 데이터 준비
             data = {
-                'coord': keypoints
+                'coord': w_h_keypoints
             }
             
             # 추가 데이터가 있으면 병합
