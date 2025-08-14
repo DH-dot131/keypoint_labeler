@@ -461,18 +461,18 @@ class KeypointLabeler(QMainWindow):
         self.status_bar.showMessage(f"{saved_count}개 파일 저장됨", 3000)
         
     def add_keypoint(self, index: int, x: int, y: int):
-        """키포인트 추가 (UI 업데이트만)"""
-        # canvas에서 이미 키포인트를 추가했으므로 UI만 업데이트
+        """키포인트 추가"""
+        # canvas의 키포인트를 메인 앱과 동기화
+        self.keypoints = self.canvas.keypoints.copy()
         self.update_keypoint_list()
-        self.canvas.set_keypoints(self.keypoints)
         
 
         
     def move_keypoint(self, index: int, x: int, y: int):
         """키포인트 이동"""
-        if 0 <= index < len(self.keypoints):
-            self.keypoints[index] = [x, y]
-            self.update_keypoint_list()
+        # canvas의 키포인트를 메인 앱과 동기화
+        self.keypoints = self.canvas.keypoints.copy()
+        self.update_keypoint_list()
             
     def select_keypoint(self, index: int):
         """키포인트 선택"""
@@ -483,6 +483,10 @@ class KeypointLabeler(QMainWindow):
         """선택된 포인트 삭제"""
         current_row = self.keypoint_list.currentRow()
         if current_row >= 0:
+            # 실행 취소를 위한 상태 저장
+            deleted_point = self.keypoints[current_row]
+            self.canvas.save_state_for_undo('delete', {'index': current_row, 'point': deleted_point})
+            
             del self.keypoints[current_row]
             self.update_keypoint_list()
             self.canvas.set_keypoints(self.keypoints)
@@ -553,9 +557,9 @@ class KeypointLabeler(QMainWindow):
         """실행 취소 액션"""
         if self.canvas.can_undo():
             self.canvas.undo()
-            self.update_keypoint_list()
             # 캔버스의 키포인트를 메인 앱과 동기화
             self.keypoints = self.canvas.keypoints.copy()
+            self.update_keypoint_list()
             
     def load_settings(self) -> Dict[str, Any]:
         """설정 로드"""
