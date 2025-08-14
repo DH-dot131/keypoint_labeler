@@ -489,7 +489,10 @@ class KeypointLabeler(QMainWindow):
             
             del self.keypoints[current_row]
             self.update_keypoint_list()
-            self.canvas.set_keypoints(self.keypoints)
+            # set_keypoints 대신 직접 keypoints 업데이트 (undo 스택 보존)
+            self.canvas.keypoints = self.keypoints.copy()
+            self.canvas.selected_point = -1
+            self.canvas.update()
             
     def clear_all_keypoints(self):
         """모든 키포인트 삭제"""

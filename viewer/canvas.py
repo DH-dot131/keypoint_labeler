@@ -248,10 +248,13 @@ class ImageCanvas(QWidget):
                 # 일반 좌클릭: 포인트 선택/추가
                 self.mouse_mode = 'select'
                 
+                # 먼저 포인트 클릭 처리 (선택 또는 추가)
+                self.handle_point_click(event.pos())
+                
                 # 드래그 시작 위치 저장 (기존 점을 선택한 경우)
                 image_pos = self.screen_to_image_coords(event.pos())
                 if image_pos and self.selected_point >= 0:
-                    # 기존에 선택된 점이 있고, 그 점 근처를 클릭한 경우
+                    # 선택된 점이 있고, 그 점 근처를 클릭한 경우
                     x, y = self.keypoints[self.selected_point]
                     distance = ((x - image_pos[0]) ** 2 + (y - image_pos[1]) ** 2) ** 0.5
                     base_min_distance = 20
@@ -260,18 +263,14 @@ class ImageCanvas(QWidget):
                     if distance < min_distance:
                         # 드래그 시작 - 현재 위치 저장
                         self.drag_start_position = [x, y]
-                        # 드래그 시작 시 해당 점의 위치만 저장 (전체 상태가 아닌)
-                        self.save_state_for_undo('move', {
-                            'index': self.selected_point, 
-                            'old_position': [x, y], 
-                            'new_position': [x, y]  # 아직 이동하지 않았으므로 같은 위치
-                        })
+                        self.dragging = True
+                        print(f"드래그 시작: 점 {self.selected_point}, 위치: {self.drag_start_position}")
                     else:
                         self.drag_start_position = None
+                        self.dragging = False
                 else:
                     self.drag_start_position = None
-                    
-                self.handle_point_click(event.pos())
+                    self.dragging = False
         elif event.button() == Qt.RightButton:
             # 우클릭: 최근 추가된 점 삭제
             self.handle_right_click(event.pos())
@@ -296,8 +295,22 @@ class ImageCanvas(QWidget):
         
     def mouseReleaseEvent(self, event: QMouseEvent):
         """마우스 릴리즈 이벤트"""
-        # 드래그가 끝났을 때는 상태 저장하지 않음 (이미 시작할 때 저장했으므로)
+        if self.dragging and self.selected_point >= 0 and self.drag_start_position:
+            # 드래그가 끝났을 때 실제로 이동했는지 확인
+            current_position = self.keypoints[self.selected_point]
+            # 실제로 위치가 변경된 경우만 저장 (좌표별 비교)
+            if (self.drag_start_position[0] != current_position[0] or 
+                self.drag_start_position[1] != current_position[1]):
+                
+                print(f"드래그 상태 저장: 점 {self.selected_point}, 시작: {self.drag_start_position}, 끝: {current_position}")
+                self.save_state_for_undo('move', {
+                    'index': self.selected_point,
+                    'old_position': self.drag_start_position.copy(),
+                    'new_position': current_position.copy()
+                })
+        
         self.mouse_mode = 'select'
+        self.dragging = False
         self.drag_start_position = None
         
     def wheelEvent(self, event: QWheelEvent):
@@ -601,22 +614,16 @@ class ImageCanvas(QWidget):
             self.update()
         self.zoom_changed.emit(self.get_zoom_percentage())
         
+
     def save_state_for_undo(self, action_type: str, data=None):
         """실행 취소를 위한 상태 저장"""
-        if action_type == 'move':
-            # 이동 작업의 경우: 전체 상태 대신 필요한 정보만 저장
-            state = {
-                'action_type': action_type,
-                'data': data
-            }
-        else:
-            # 추가/삭제 작업의 경우: 전체 상태 저장
-            state = {
-                'keypoints': self.keypoints.copy(),
-                'selected_point': self.selected_point,
-                'action_type': action_type,
-                'data': data
-            }
+        # 모든 작업에 대해 전체 상태 저장
+        state = {
+            'action_type': action_type,
+            'keypoints_before': [kp.copy() for kp in self.keypoints],  # 깊은 복사
+            'selected_point_before': self.selected_point,
+            'data': data
+        }
         
         self.undo_stack.append(state)
         
@@ -627,10 +634,12 @@ class ImageCanvas(QWidget):
     def undo(self):
         """실행 취소"""
         if not self.undo_stack:
+            print("실행 취소할 작업이 없습니다")
             return
-            
+        
         # 이전 상태 복원
         previous_state = self.undo_stack.pop()
+        print(f"실행 취소: {previous_state['action_type']}, 스택 크기: {len(self.undo_stack)}")
         
         if previous_state['action_type'] == 'move':
             # 이동 취소: 해당 점의 위치만 복원
@@ -641,29 +650,22 @@ class ImageCanvas(QWidget):
                 if 0 <= index < len(self.keypoints):
                     self.keypoints[index] = old_position.copy()
                     self.selected_point = index
+                    print(f"이동 취소: 점 {index}를 {old_position}로 복원")
         else:
             # 추가/삭제 취소: 전체 상태 복원
-            self.keypoints = previous_state['keypoints']
-            self.selected_point = previous_state['selected_point']
+            self.keypoints = [kp.copy() for kp in previous_state['keypoints_before']]
+            self.selected_point = previous_state['selected_point_before']
+            
+            # last_added_point 업데이트
+            if previous_state['action_type'] == 'add':
+                self.last_added_point = -1
+            print(f"전체 상태 복원: {len(self.keypoints)}개 점")
         
         # UI 업데이트
         self.update()
         
         # 메인 앱에 변경사항 알림
-        self.point_moved.emit(-1, 0, 0)  # 강제로 UI 업데이트 트리거
-        
-        # 시그널 발생 (UI 업데이트를 위해)
-        if previous_state['action_type'] == 'add':
-            # 점 추가 취소 시
-            self.point_moved.emit(-1, 0, 0)
-        elif previous_state['action_type'] == 'delete':
-            # 점 삭제 취소 시
-            self.point_moved.emit(-1, 0, 0)
-        elif previous_state['action_type'] == 'move':
-            # 점 이동 취소 시
-            if self.selected_point >= 0:
-                x, y = self.keypoints[self.selected_point]
-                self.point_moved.emit(self.selected_point, x, y)
+        self.point_moved.emit(-1, 0, 0)
             
     def can_undo(self) -> bool:
         """실행 취소 가능 여부"""
