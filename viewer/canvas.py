@@ -6,7 +6,7 @@ Image Canvas for Keypoint Labeler
 import numpy as np
 from typing import List, Tuple, Optional
 from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QSlider
-from PyQt5.QtCore import Qt, pyqtSignal, QRect, QPoint
+from PyQt5.QtCore import Qt, pyqtSignal, QRect, QPoint, QSize
 from PyQt5.QtGui import QPixmap, QPainter, QPen, QBrush, QColor, QFont, QMouseEvent, QWheelEvent, QKeyEvent
 
 from .dicom_loader import DICOMLoader
@@ -20,6 +20,7 @@ class ImageCanvas(QWidget):
     point_added = pyqtSignal(int, int, int)  # index, x, y
     point_moved = pyqtSignal(int, int, int)  # index, x, y
     point_selected = pyqtSignal(int)  # index
+    zoom_changed = pyqtSignal(int)  # zoom percentage
     
     def __init__(self):
         super().__init__()
@@ -158,16 +159,23 @@ class ImageCanvas(QWidget):
         
         # 이미지 그리기
         if self.pixmap:
-            # 이미지를 위젯 크기에 맞춤
+            # 줌 적용된 이미지 크기 계산
+            base_size = self.size()
+            zoomed_size = QSize(
+                int(base_size.width() * self.zoom_factor),
+                int(base_size.height() * self.zoom_factor)
+            )
+            
+            # 이미지를 줌 크기에 맞춤
             scaled_pixmap = self.pixmap.scaled(
-                self.size(),
+                zoomed_size,
                 Qt.KeepAspectRatio,
                 Qt.SmoothTransformation
             )
             
-            # 중앙 정렬
-            x = (self.width() - scaled_pixmap.width()) // 2
-            y = (self.height() - scaled_pixmap.height()) // 2
+            # 중앙 정렬 (패닝 오프셋 적용)
+            x = (self.width() - scaled_pixmap.width()) // 2 + self.pan_offset.x()
+            y = (self.height() - scaled_pixmap.height()) // 2 + self.pan_offset.y()
             
             painter.drawPixmap(x, y, scaled_pixmap)
             
@@ -200,14 +208,20 @@ class ImageCanvas(QWidget):
             painter.setPen(QPen(color, pen_width))
             painter.setBrush(QBrush(color))
             
+            # 줌 레벨에 따른 크기 조정
+            base_radius = 3
+            base_cross_size = 6
+            
+            # 줌 팩터에 따라 크기 조정 (최소/최대 제한)
+            zoom_radius = max(2, min(8, int(base_radius * self.zoom_factor)))
+            zoom_cross_size = max(4, min(12, int(base_cross_size * self.zoom_factor)))
+            
             # 원 그리기
-            radius = 6
-            painter.drawEllipse(screen_x - radius, screen_y - radius, radius * 2, radius * 2)
+            painter.drawEllipse(screen_x - zoom_radius, screen_y - zoom_radius, zoom_radius * 2, zoom_radius * 2)
             
             # 십자선 그리기
-            cross_size = 8
-            painter.drawLine(screen_x - cross_size, screen_y, screen_x + cross_size, screen_y)
-            painter.drawLine(screen_x, screen_y - cross_size, screen_x, screen_y + cross_size)
+            painter.drawLine(screen_x - zoom_cross_size, screen_y, screen_x + zoom_cross_size, screen_y)
+            painter.drawLine(screen_x, screen_y - zoom_cross_size, screen_x, screen_y + zoom_cross_size)
             
             # 라벨 그리기
             if self.show_labels:
@@ -218,17 +232,29 @@ class ImageCanvas(QWidget):
     def mousePressEvent(self, event: QMouseEvent):
         """마우스 클릭 이벤트"""
         if event.button() == Qt.LeftButton:
-            # 포인트 선택/추가
-            self.mouse_mode = 'select'
-            self.handle_point_click(event.pos())
+            if event.modifiers() & Qt.AltModifier:
+                # Alt + 좌클릭: 패닝 모드
+                self.mouse_mode = 'pan'
+            else:
+                # 일반 좌클릭: 포인트 선택/추가
+                self.mouse_mode = 'select'
+                self.handle_point_click(event.pos())
                 
         self.last_mouse_pos = event.pos()
         
     def mouseMoveEvent(self, event: QMouseEvent):
         """마우스 이동 이벤트"""
-        if self.mouse_mode == 'select' and event.buttons() & Qt.LeftButton and self.selected_point >= 0:
-            # 포인트 드래그
-            self.handle_point_drag(event.pos())
+        if event.buttons() & Qt.LeftButton:
+            if self.mouse_mode == 'select' and self.selected_point >= 0:
+                # 포인트 드래그
+                self.handle_point_drag(event.pos())
+            elif self.mouse_mode == 'pan':
+                # 이미지 패닝
+                delta_x = event.pos().x() - self.last_mouse_pos.x()
+                delta_y = event.pos().y() - self.last_mouse_pos.y()
+                self.pan_offset.setX(self.pan_offset.x() + delta_x)
+                self.pan_offset.setY(self.pan_offset.y() + delta_y)
+                self.update()
             
         self.last_mouse_pos = event.pos()
         
@@ -239,22 +265,79 @@ class ImageCanvas(QWidget):
     def wheelEvent(self, event: QWheelEvent):
         """마우스 휠 이벤트 (줌)"""
         if event.modifiers() & Qt.ControlModifier:
-            # Ctrl+휠: 줌
+            # Ctrl+휠: 마우스 포인터 중심 줌
             delta = event.angleDelta().y()
-            if delta > 0:
-                self.zoom_factor *= 1.1
-            else:
-                self.zoom_factor /= 1.1
-                
-            # 줌 범위 제한
-            self.zoom_factor = max(0.1, min(5.0, self.zoom_factor))
+            zoom_factor_change = 1.1 if delta > 0 else 0.9
+            
+            # 마우스 포인터 위치 저장
+            mouse_pos = event.pos()
+            
+            # 줌 팩터 업데이트
+            old_zoom = self.zoom_factor
+            self.zoom_factor *= zoom_factor_change
+            
+            # 줌 범위 제한 (0.1 ~ 10.0)
+            self.zoom_factor = max(0.1, min(10.0, self.zoom_factor))
+            
+            # 마우스 포인터 위치를 중심으로 패닝 조정
+            if self.zoom_factor != old_zoom:
+                # 마우스 포인터가 이미지 내부에 있는지 확인
+                image_rect = self.get_image_rect()
+                if image_rect.contains(mouse_pos):
+                    # 마우스 포인터 중심으로 줌
+                    zoom_ratio = self.zoom_factor / old_zoom
+                    new_pan_x = mouse_pos.x() - (mouse_pos.x() - self.pan_offset.x()) * zoom_ratio
+                    new_pan_y = mouse_pos.y() - (mouse_pos.y() - self.pan_offset.y()) * zoom_ratio
+                    self.pan_offset = QPoint(int(new_pan_x), int(new_pan_y))
+            
             self.update()
+            # 줌 변경 시그널 발생
+            self.zoom_changed.emit(self.get_zoom_percentage())
         else:
             # 일반 휠: 수직 스크롤
             super().wheelEvent(event)
             
     def keyPressEvent(self, event: QKeyEvent):
         """키보드 이벤트"""
+        # 줌 단축키 처리
+        if event.modifiers() & Qt.ControlModifier:
+            key = event.key()
+            if key in [Qt.Key_Plus, Qt.Key_Equal, 43, 61]:  # + 키 (Shift+= 또는 +)
+                self.zoom_in()
+                return
+            elif key in [Qt.Key_Minus, 45]:  # - 키
+                self.zoom_out()
+                return
+            elif key == Qt.Key_0:
+                self.reset_view()
+                return
+        
+        # 패닝 단축키 (Space + 방향키)
+        if event.key() == Qt.Key_Space:
+            self.mouse_mode = 'pan'
+            return
+            
+        # 패닝 모드에서 방향키로 이미지 이동
+        if self.mouse_mode == 'pan':
+            pan_step = 20 if event.modifiers() & Qt.ShiftModifier else 10
+            if event.key() == Qt.Key_Left:
+                self.pan_offset.setX(self.pan_offset.x() + pan_step)
+                self.update()
+                return
+            elif event.key() == Qt.Key_Right:
+                self.pan_offset.setX(self.pan_offset.x() - pan_step)
+                self.update()
+                return
+            elif event.key() == Qt.Key_Up:
+                self.pan_offset.setY(self.pan_offset.y() + pan_step)
+                self.update()
+                return
+            elif event.key() == Qt.Key_Down:
+                self.pan_offset.setY(self.pan_offset.y() - pan_step)
+                self.update()
+                return
+        
+        # 포인트 이동 단축키
         if self.selected_point >= 0:
             step = 10 if event.modifiers() & Qt.ShiftModifier else 1
             
@@ -269,6 +352,11 @@ class ImageCanvas(QWidget):
             elif event.key() == Qt.Key_Delete:
                 self.delete_selected_point()
                 
+    def keyReleaseEvent(self, event: QKeyEvent):
+        """키보드 릴리즈 이벤트"""
+        if event.key() == Qt.Key_Space:
+            self.mouse_mode = 'select'
+                
     def handle_point_click(self, pos: QPoint):
         """포인트 클릭 처리"""
         # 화면 좌표를 이미지 좌표로 변환
@@ -276,8 +364,9 @@ class ImageCanvas(QWidget):
         if image_pos is None:
             return
             
-        # 기존 포인트와의 거리 확인
-        min_distance = 20
+        # 기존 포인트와의 거리 확인 (줌 레벨에 따라 조정)
+        base_min_distance = 20
+        min_distance = max(10, int(base_min_distance / self.zoom_factor))
         closest_point = -1
         
         for i, (x, y) in enumerate(self.keypoints):
@@ -345,16 +434,23 @@ class ImageCanvas(QWidget):
         if not self.pixmap:
             return None
             
-        # 이미지를 위젯 크기에 맞춘 크기 계산
+        # 줌 적용된 이미지 크기 계산
+        base_size = self.size()
+        zoomed_size = QSize(
+            int(base_size.width() * self.zoom_factor),
+            int(base_size.height() * self.zoom_factor)
+        )
+        
+        # 이미지를 줌 크기에 맞춤
         scaled_pixmap = self.pixmap.scaled(
-            self.size(),
+            zoomed_size,
             Qt.KeepAspectRatio,
             Qt.SmoothTransformation
         )
         
-        # 이미지 영역 계산
-        image_x = (self.width() - scaled_pixmap.width()) // 2
-        image_y = (self.height() - scaled_pixmap.height()) // 2
+        # 이미지 영역 계산 (패닝 오프셋 포함)
+        image_x = (self.width() - scaled_pixmap.width()) // 2 + self.pan_offset.x()
+        image_y = (self.height() - scaled_pixmap.height()) // 2 + self.pan_offset.y()
         
         # 이미지 영역 내인지 확인
         if (image_x <= screen_pos.x() <= image_x + scaled_pixmap.width() and
@@ -378,14 +474,45 @@ class ImageCanvas(QWidget):
     def zoom_in(self):
         """확대"""
         self.zoom_factor *= 1.2
-        self.zoom_factor = min(5.0, self.zoom_factor)
+        self.zoom_factor = min(10.0, self.zoom_factor)
         self.update()
+        self.zoom_changed.emit(self.get_zoom_percentage())
         
     def zoom_out(self):
         """축소"""
         self.zoom_factor /= 1.2
         self.zoom_factor = max(0.1, self.zoom_factor)
         self.update()
+        self.zoom_changed.emit(self.get_zoom_percentage())
+        
+    def get_image_rect(self) -> QRect:
+        """현재 이미지의 화면상 위치와 크기 반환"""
+        if not self.pixmap:
+            return QRect()
+            
+        # 줌 적용된 이미지 크기 계산
+        base_size = self.size()
+        zoomed_size = QSize(
+            int(base_size.width() * self.zoom_factor),
+            int(base_size.height() * self.zoom_factor)
+        )
+        
+        # 이미지를 줌 크기에 맞춤
+        scaled_pixmap = self.pixmap.scaled(
+            zoomed_size,
+            Qt.KeepAspectRatio,
+            Qt.SmoothTransformation
+        )
+        
+        # 이미지 위치 계산
+        x = (self.width() - scaled_pixmap.width()) // 2 + self.pan_offset.x()
+        y = (self.height() - scaled_pixmap.height()) // 2 + self.pan_offset.y()
+        
+        return QRect(x, y, scaled_pixmap.width(), scaled_pixmap.height())
+        
+    def get_zoom_percentage(self) -> int:
+        """현재 줌 레벨을 퍼센트로 반환"""
+        return int(self.zoom_factor * 100)
         
     def reset_view(self):
         """뷰 리셋"""
@@ -397,3 +524,4 @@ class ImageCanvas(QWidget):
             self.update_display()
         else:
             self.update()
+        self.zoom_changed.emit(self.get_zoom_percentage())

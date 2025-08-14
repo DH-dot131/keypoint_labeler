@@ -20,7 +20,7 @@ from PyQt5.QtWidgets import (
     QSlider, QPushButton, QCheckBox, QSpinBox, QComboBox,
     QGroupBox, QGridLayout, QFrame
 )
-from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QThread, QMutex
+from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QThread, QMutex, QSize
 from PyQt5.QtGui import QIcon, QPixmap, QPainter, QPen, QBrush, QColor, QFont
 
 from viewer.canvas import ImageCanvas
@@ -140,6 +140,29 @@ class KeypointLabeler(QMainWindow):
         self.auto_save_cb.setChecked(self.auto_save)
         viewer_layout.addWidget(self.auto_save_cb, 0, 1)
         
+        # 줌 컨트롤 추가
+        viewer_layout.addWidget(QLabel("줌:"), 1, 0)
+        self.zoom_label = QLabel("100%")
+        self.zoom_label.setStyleSheet("font-weight: bold; color: #4CAF50;")
+        viewer_layout.addWidget(self.zoom_label, 1, 1)
+        
+        # 줌 버튼들
+        zoom_button_layout = QHBoxLayout()
+        self.zoom_in_btn = QPushButton("+")
+        self.zoom_out_btn = QPushButton("-")
+        self.zoom_reset_btn = QPushButton("100%")
+        
+        zoom_button_layout.addWidget(self.zoom_in_btn)
+        zoom_button_layout.addWidget(self.zoom_out_btn)
+        zoom_button_layout.addWidget(self.zoom_reset_btn)
+        viewer_layout.addLayout(zoom_button_layout, 2, 0, 1, 2)
+        
+        # 패닝 컨트롤 추가
+        viewer_layout.addWidget(QLabel("패닝:"), 3, 0)
+        pan_info_label = QLabel("Alt+드래그 또는 Space+방향키")
+        pan_info_label.setStyleSheet("color: #888; font-size: 10px;")
+        viewer_layout.addWidget(pan_info_label, 3, 1)
+        
         layout.addWidget(viewer_group)  # 이 부분이 중요!
         
 
@@ -220,14 +243,17 @@ class KeypointLabeler(QMainWindow):
         
         zoom_in_action = QAction('확대(&I)', self)
         zoom_in_action.setShortcut('Ctrl++')
+        zoom_in_action.triggered.connect(self.canvas.zoom_in)
         view_menu.addAction(zoom_in_action)
         
         zoom_out_action = QAction('축소(&O)', self)
         zoom_out_action.setShortcut('Ctrl+-')
+        zoom_out_action.triggered.connect(self.canvas.zoom_out)
         view_menu.addAction(zoom_out_action)
         
         fit_window_action = QAction('창에 맞춤(&F)', self)
         fit_window_action.setShortcut('Ctrl+0')
+        fit_window_action.triggered.connect(self.canvas.reset_view)
         view_menu.addAction(fit_window_action)
         
         view_menu.addSeparator()
@@ -279,6 +305,7 @@ class KeypointLabeler(QMainWindow):
         self.canvas.point_added.connect(self.add_keypoint)
         self.canvas.point_moved.connect(self.move_keypoint)
         self.canvas.point_selected.connect(self.select_keypoint)
+        self.canvas.zoom_changed.connect(self.update_zoom_label)
         
         # 사이드 패널 시그널
         self.keypoint_list.itemSelectionChanged.connect(self.on_keypoint_selection_changed)
@@ -290,6 +317,11 @@ class KeypointLabeler(QMainWindow):
         
         self.show_labels_cb.toggled.connect(lambda checked: self.canvas.set_show_labels(checked))
         self.auto_save_cb.toggled.connect(self.set_auto_save)
+        
+        # 줌 버튼 시그널 연결
+        self.zoom_in_btn.clicked.connect(self.canvas.zoom_in)
+        self.zoom_out_btn.clicked.connect(self.canvas.zoom_out)
+        self.zoom_reset_btn.clicked.connect(self.canvas.reset_view)
         
 
         
@@ -511,6 +543,10 @@ class KeypointLabeler(QMainWindow):
                 self.file_info_label.setText(filename)
         else:
             self.file_info_label.setText("파일 없음")
+            
+    def update_zoom_label(self, zoom_percentage: int):
+        """줌 레이블 업데이트"""
+        self.zoom_label.setText(f"{zoom_percentage}%")
             
     def load_settings(self) -> Dict[str, Any]:
         """설정 로드"""
