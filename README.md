@@ -88,6 +88,8 @@ pyinstaller --onefile --windowed --exclude-module torch --exclude-module tensorf
 - **포인트 선택**: 기존 포인트 클릭
 - **포인트 이동**: 선택된 포인트 드래그
 - **포인트 삭제**: 포인트 선택 후 "삭제" 버튼 또는 Delete 키
+- **최근 점 삭제**: 마우스 우클릭 (마지막으로 추가된 점만)
+- **실행 취소**: Ctrl + Z (최대 50단계)
 - **정밀 이동**: 포인트 선택 후 화살표 키 (Shift: 10px 단위)
 
 ### 이미지 줌 및 패닝
@@ -118,6 +120,8 @@ pyinstaller --onefile --windowed --exclude-module torch --exclude-module tensorf
 | **Alt + 드래그** | 이미지 이동 (패닝) |
 | **Space + 방향키** | 키보드로 이미지 이동 |
 | **Space + Shift + 방향키** | 빠른 이미지 이동 |
+| **Ctrl + Z** | 실행 취소 |
+| **우클릭** | 최근 추가된 점 삭제 |
 
 ## JSON 파일 형식
 

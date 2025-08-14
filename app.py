@@ -225,6 +225,7 @@ class KeypointLabeler(QMainWindow):
         
         undo_action = QAction('실행 취소(&U)', self)
         undo_action.setShortcut('Ctrl+Z')
+        undo_action.triggered.connect(self.undo_action)
         edit_menu.addAction(undo_action)
         
         redo_action = QAction('다시 실행(&R)', self)
@@ -547,6 +548,14 @@ class KeypointLabeler(QMainWindow):
     def update_zoom_label(self, zoom_percentage: int):
         """줌 레이블 업데이트"""
         self.zoom_label.setText(f"{zoom_percentage}%")
+        
+    def undo_action(self):
+        """실행 취소 액션"""
+        if self.canvas.can_undo():
+            self.canvas.undo()
+            self.update_keypoint_list()
+            # 캔버스의 키포인트를 메인 앱과 동기화
+            self.keypoints = self.canvas.keypoints.copy()
             
     def load_settings(self) -> Dict[str, Any]:
         """설정 로드"""

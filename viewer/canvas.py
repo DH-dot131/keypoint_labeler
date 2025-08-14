@@ -51,6 +51,11 @@ class ImageCanvas(QWidget):
         self.last_mouse_pos = QPoint()
         self.mouse_mode = 'select'  # 'select', 'pan', 'window_level'
         
+        # 실행 취소 기능
+        self.undo_stack = []  # 실행 취소 스택
+        self.max_undo_steps = 50  # 최대 실행 취소 단계
+        self.last_added_point = -1  # 마지막으로 추가된 점의 인덱스
+        
     def load_image(self, file_path: str):
         """일반 이미지 파일 로드"""
         try:
@@ -104,6 +109,9 @@ class ImageCanvas(QWidget):
     def set_keypoints(self, keypoints: List[List[int]]):
         """키포인트 설정"""
         self.keypoints = keypoints
+        self.selected_point = -1
+        self.last_added_point = -1
+        self.clear_undo_stack()  # 새로운 이미지 로드 시 실행 취소 스택 초기화
         self.update()
         
     def select_keypoint(self, index: int):
@@ -239,6 +247,9 @@ class ImageCanvas(QWidget):
                 # 일반 좌클릭: 포인트 선택/추가
                 self.mouse_mode = 'select'
                 self.handle_point_click(event.pos())
+        elif event.button() == Qt.RightButton:
+            # 우클릭: 최근 추가된 점 삭제
+            self.handle_right_click(event.pos())
                 
         self.last_mouse_pos = event.pos()
         
@@ -299,6 +310,11 @@ class ImageCanvas(QWidget):
             
     def keyPressEvent(self, event: QKeyEvent):
         """키보드 이벤트"""
+        # 실행 취소 (Ctrl+Z)
+        if event.modifiers() & Qt.ControlModifier and event.key() == Qt.Key_Z:
+            self.undo()
+            return
+            
         # 줌 단축키 처리
         if event.modifiers() & Qt.ControlModifier:
             key = event.key()
@@ -380,12 +396,39 @@ class ImageCanvas(QWidget):
             self.selected_point = closest_point
             self.point_selected.emit(closest_point)
         else:
-            # 새 포인트 자동 추가
+            # 새 포인트 자동 추가 (실행 취소를 위한 상태 저장)
+            self.save_state_for_undo('add', {'position': image_pos})
             self.keypoints.append([image_pos[0], image_pos[1]])
             self.selected_point = len(self.keypoints) - 1
+            self.last_added_point = self.selected_point
             self.point_added.emit(self.selected_point, image_pos[0], image_pos[1])
             
         self.update()
+        
+    def handle_right_click(self, pos: QPoint):
+        """우클릭 처리 - 최근 추가된 점 삭제"""
+        print(f"우클릭 처리: last_added_point={self.last_added_point}, keypoints_count={len(self.keypoints)}")
+        if self.last_added_point >= 0 and self.last_added_point < len(self.keypoints):
+            # 최근 추가된 점 삭제
+            deleted_point = self.keypoints[self.last_added_point]
+            self.save_state_for_undo('delete', {'index': self.last_added_point, 'point': deleted_point})
+            
+            del self.keypoints[self.last_added_point]
+            
+            # 선택 상태 업데이트
+            if self.selected_point == self.last_added_point:
+                self.selected_point = -1
+            elif self.selected_point > self.last_added_point:
+                self.selected_point -= 1
+                
+            self.last_added_point = -1  # 리셋
+            self.update()
+            
+            # 시그널 발생
+            self.point_moved.emit(-1, 0, 0)  # UI 업데이트를 위한 시그널
+            print(f"점 삭제 완료: 남은 점 개수={len(self.keypoints)}")
+        else:
+            print("삭제할 점이 없습니다")
         
     def handle_point_drag(self, pos: QPoint):
         """포인트 드래그 처리"""
@@ -404,7 +447,10 @@ class ImageCanvas(QWidget):
         else:
             x, y = image_pos
             
-        # 포인트 이동
+        # 포인트 이동 (실행 취소를 위한 상태 저장)
+        old_position = self.keypoints[self.selected_point]
+        self.save_state_for_undo('move', {'index': self.selected_point, 'old_position': old_position, 'new_position': [x, y]})
+        
         self.keypoints[self.selected_point] = [x, y]
         self.point_moved.emit(self.selected_point, x, y)
         self.update()
@@ -418,6 +464,10 @@ class ImageCanvas(QWidget):
         new_x = max(0, min(self.pixmap.width() - 1 if self.pixmap else 9999, x + dx))
         new_y = max(0, min(self.pixmap.height() - 1 if self.pixmap else 9999, y + dy))
         
+        # 실행 취소를 위한 상태 저장
+        old_position = self.keypoints[self.selected_point]
+        self.save_state_for_undo('move', {'index': self.selected_point, 'old_position': old_position, 'new_position': [new_x, new_y]})
+        
         self.keypoints[self.selected_point] = [new_x, new_y]
         self.point_moved.emit(self.selected_point, new_x, new_y)
         self.update()
@@ -425,6 +475,10 @@ class ImageCanvas(QWidget):
     def delete_selected_point(self):
         """선택된 포인트 삭제"""
         if self.selected_point >= 0 and self.selected_point < len(self.keypoints):
+            # 실행 취소를 위한 상태 저장
+            deleted_point = self.keypoints[self.selected_point]
+            self.save_state_for_undo('delete', {'index': self.selected_point, 'point': deleted_point})
+            
             del self.keypoints[self.selected_point]
             self.selected_point = -1
             self.update()
@@ -525,3 +579,58 @@ class ImageCanvas(QWidget):
         else:
             self.update()
         self.zoom_changed.emit(self.get_zoom_percentage())
+        
+    def save_state_for_undo(self, action_type: str, data=None):
+        """실행 취소를 위한 상태 저장"""
+        state = {
+            'keypoints': self.keypoints.copy(),
+            'selected_point': self.selected_point,
+            'action_type': action_type,
+            'data': data
+        }
+        
+        self.undo_stack.append(state)
+        
+        # 최대 단계 제한
+        if len(self.undo_stack) > self.max_undo_steps:
+            self.undo_stack.pop(0)
+            
+        print(f"상태 저장: {action_type}, 점 개수={len(self.keypoints)}, 스택 크기={len(self.undo_stack)}")
+            
+    def undo(self):
+        """실행 취소"""
+        if not self.undo_stack:
+            print("실행 취소할 작업이 없습니다")
+            return
+            
+        # 이전 상태 복원
+        previous_state = self.undo_stack.pop()
+        self.keypoints = previous_state['keypoints']
+        self.selected_point = previous_state['selected_point']
+        
+        print(f"실행 취소: {previous_state['action_type']}, 점 개수={len(self.keypoints)}")
+        
+        # UI 업데이트
+        self.update()
+        
+        # 시그널 발생 (UI 업데이트를 위해)
+        if previous_state['action_type'] == 'add':
+            # 점 추가 취소 시
+            self.point_moved.emit(-1, 0, 0)
+        elif previous_state['action_type'] == 'delete':
+            # 점 삭제 취소 시
+            self.point_moved.emit(-1, 0, 0)
+        elif previous_state['action_type'] == 'move':
+            # 점 이동 취소 시
+            if self.selected_point >= 0:
+                x, y = self.keypoints[self.selected_point]
+                self.point_moved.emit(self.selected_point, x, y)
+            
+    def can_undo(self) -> bool:
+        """실행 취소 가능 여부"""
+        return len(self.undo_stack) > 0
+        
+    def clear_undo_stack(self):
+        """실행 취소 스택 초기화"""
+        self.undo_stack.clear()
+        self.last_added_point = -1
