@@ -122,11 +122,47 @@ class DICOMLoader:
     def load_dicom(self):
         """DICOM 파일 로드"""
         try:
+            # 먼저 기본 방법으로 시도
             self.dataset = pydicom.dcmread(self.file_path)
             self.original_pixel_array = self.dataset.pixel_array.copy()
             self.pixel_array = self.original_pixel_array.copy()
         except Exception as e:
-            raise Exception(f"DICOM 파일 로드 실패: {e}")
+            error_msg = str(e)
+            if "unable to decompress" in error_msg.lower() and "jpeg" in error_msg.lower():
+                # JPEG 압축 해제 에러인 경우 대안 방법 시도
+                try:
+                    # force=True로 강제 로드 시도
+                    self.dataset = pydicom.dcmread(self.file_path, force=True)
+                    # pixel_array 접근 시 에러가 발생할 수 있으므로 try-except로 감싸기
+                    try:
+                        self.original_pixel_array = self.dataset.pixel_array.copy()
+                        self.pixel_array = self.original_pixel_array.copy()
+                    except Exception as pixel_error:
+                        # pixel_array 접근 실패 시 더 자세한 안내 메시지 제공
+                        raise Exception(f"DICOM 파일 로드 실패: {error_msg}\n\n"
+                                      f"해결 방법:\n"
+                                      f"1. pip로 설치 가능한 라이브러리 (대부분의 JPEG Lossless 지원):\n"
+                                      f"   pip install pylibjpeg>=2.0 pylibjpeg-libjpeg>=2.1\n"
+                                      f"2. gdcm이 필요한 경우 (새 conda 환경에서):\n"
+                                      f"   conda create -n dicom_env python=3.9\n"
+                                      f"   conda activate dicom_env\n"
+                                      f"   conda install -c conda-forge gdcm\n"
+                                      f"3. 또는 requirements.txt 사용:\n"
+                                      f"   pip install -r requirements.txt")
+                except Exception as force_error:
+                    # force=True로도 실패한 경우
+                    raise Exception(f"DICOM 파일 로드 실패: {error_msg}\n\n"
+                                  f"해결 방법:\n"
+                                  f"1. pip로 설치 가능한 라이브러리 (대부분의 JPEG Lossless 지원):\n"
+                                  f"   pip install pylibjpeg>=2.0 pylibjpeg-libjpeg>=2.1\n"
+                                  f"2. gdcm이 필요한 경우 (새 conda 환경에서):\n"
+                                  f"   conda create -n dicom_env python=3.9\n"
+                                  f"   conda activate dicom_env\n"
+                                  f"   conda install -c conda-forge gdcm\n"
+                                  f"3. 또는 requirements.txt 사용:\n"
+                                  f"   pip install -r requirements.txt")
+            else:
+                raise Exception(f"DICOM 파일 로드 실패: {error_msg}")
             
     def get_image(self) -> np.ndarray:
         """처리된 이미지 반환"""
