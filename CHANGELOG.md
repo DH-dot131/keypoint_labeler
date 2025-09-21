@@ -2,6 +2,7 @@
 
 이 파일은 키포인트 라벨러의 모든 주요 변경사항을 기록합니다.
 
+
 ## [1.0.0] - 2025-08-12
 
 ### 추가된 기능
@@ -67,6 +68,20 @@
 ### 버그 수정
 - 키보드 단축키 (Ctrl + '+', Ctrl + '-') 작동 안정성 개선
 - 줌 후 키포인트 선택 정확도 향상
+
+## [1.1.1] - 2025-09-21
+
+### 버그 수정
+- **DICOM 로드 오류 수정**: `float() argument must be a string or a real number, not 'NoneType'` 오류 해결
+  - DICOM 메타데이터에서 None 값 처리 개선
+  - RescaleSlope, RescaleIntercept, WindowCenter, WindowWidth 등 태그의 안전한 변환
+  - PixelSpacing, SeriesNumber, ImageNumber 등의 안전한 처리
+  - utils.py의 안전한 변환 함수들을 dicom_loader.py에 적용
+
+### 기술적 개선사항
+- 안전한 float/int 변환 함수 추가 (`_safe_float`, `_safe_get_first_value`)
+- DICOM 태그 접근 시 예외 처리 강화
+- getattr() 사용으로 안전한 메타데이터 접근
 
 ## [Unreleased]
 

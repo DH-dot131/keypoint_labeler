@@ -62,7 +62,7 @@ class KeypointLabeler(QMainWindow):
         
     def init_ui(self):
         """UI 초기화"""
-        self.setWindowTitle("키포인트 라벨러 v1.1.0")
+        self.setWindowTitle("키포인트 라벨러 v1.1.1")
         self.setGeometry(100, 100, 1400, 900)
         
         # 중앙 위젯
@@ -632,7 +632,7 @@ def main():
     """메인 함수"""
     app = QApplication(sys.argv)
     app.setApplicationName("Keypoint Labeler")
-    app.setApplicationVersion("1.1.0")
+    app.setApplicationVersion("1.1.1")
     
     # 스타일 설정
     app.setStyle('Fusion')
