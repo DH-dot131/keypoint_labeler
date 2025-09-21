@@ -40,6 +40,28 @@ class DICOMLoader:
             raise TypeError(f"Unsupported LUTData type: {type(raw_lut)}")
     
     @staticmethod
+    def _safe_float(value, default=1.0):
+        """안전하게 float로 변환하는 함수"""
+        if value is None:
+            return default
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return default
+
+    @staticmethod
+    def _safe_get_first_value(value, default=None):
+        """리스트나 MultiValue에서 첫 번째 값을 안전하게 가져오는 함수"""
+        if value is None:
+            return default
+        if isinstance(value, (list, pydicom.multival.MultiValue)):
+            if len(value) > 0:
+                return value[0]
+            else:
+                return default
+        return value
+    
+    @staticmethod
     def preprocess_dicom(ds):
         """
         DICOM 파일을 보기 좋게 시각화하는 함수 (MONOCHROME + RGB 모두 대응)
@@ -47,10 +69,16 @@ class DICOMLoader:
         pixel_array = ds.pixel_array
 
         # 1) signed pixel 처리 (PixelRepresentation == 1)
-        if getattr(ds, 'PixelRepresentation', 0) == 1:
-            # BitsStored 비트로 signed 값이 들어옴
-            signed_max = 2 ** (ds.BitsStored - 1)
-            pixel_array = pixel_array - signed_max
+        try:
+            pixel_representation = getattr(ds, 'PixelRepresentation', 0)
+            bits_stored = getattr(ds, 'BitsStored', 16)
+            
+            if pixel_representation == 1:
+                # BitsStored 비트로 signed 값이 들어옴
+                signed_max = 2 ** (bits_stored - 1)
+                pixel_array = pixel_array - signed_max
+        except Exception as e:
+            print(f"Signed pixel 처리 중 오류: {e}")
             
         # Apply VOI LUT (if available and MONOCHROME)
         if hasattr(ds, 'PhotometricInterpretation') and ds.PhotometricInterpretation.startswith('MONOCHROME'):
@@ -64,15 +92,39 @@ class DICOMLoader:
                 pixel_array = np.clip(pixel_array, 0, len(lut_data)-1)
                 pixel_array = lut_data[pixel_array]
             
-            if hasattr(ds, 'RescaleSlope') and hasattr(ds, 'RescaleIntercept'):
-                slope = float(ds.RescaleSlope)
-                intercept = float(ds.RescaleIntercept)
-                pixel_array = pixel_array * slope + intercept
+            # Rescale 처리 (개선된 None 처리)
+            try:
+                rescale_slope = getattr(ds, 'RescaleSlope', None)
+                rescale_intercept = getattr(ds, 'RescaleIntercept', None)
                 
-            elif hasattr(ds, 'WindowCenter') and hasattr(ds, 'WindowWidth'):
-                wc = float(ds.WindowCenter[0]) if isinstance(ds.WindowCenter, (list, pydicom.multival.MultiValue)) else float(ds.WindowCenter)
-                ww = float(ds.WindowWidth[0]) if isinstance(ds.WindowWidth, (list, pydicom.multival.MultiValue)) else float(ds.WindowWidth)
-                pixel_array = np.clip(pixel_array, wc - ww / 2, wc + ww / 2)
+                if rescale_slope is not None and rescale_intercept is not None:
+                    slope = DICOMLoader._safe_float(rescale_slope, 1.0)
+                    intercept = DICOMLoader._safe_float(rescale_intercept, 0.0)
+                    print(f"Rescale 적용: slope={slope}, intercept={intercept}")
+                    pixel_array = pixel_array * slope + intercept
+                else:
+                    print("Rescale 값이 없어서 Window/Level 처리로 넘어갑니다.")
+            except Exception as e:
+                print(f"Rescale 처리 중 오류: {e}")
+                
+            # Window/Level 처리 (개선된 None 처리)
+            try:
+                window_center = getattr(ds, 'WindowCenter', None)
+                window_width = getattr(ds, 'WindowWidth', None)
+                
+                if window_center is not None and window_width is not None:
+                    wc = DICOMLoader._safe_float(DICOMLoader._safe_get_first_value(window_center), None)
+                    ww = DICOMLoader._safe_float(DICOMLoader._safe_get_first_value(window_width), None)
+                    
+                    if wc is not None and ww is not None:
+                        print(f"Window/Level 적용: center={wc}, width={ww}")
+                        pixel_array = np.clip(pixel_array, wc - ww / 2, wc + ww / 2)
+                    else:
+                        print("Window/Level 값이 유효하지 않습니다.")
+                else:
+                    print("Window/Level 값이 없습니다.")
+            except Exception as e:
+                print(f"Window/Level 처리 중 오류: {e}")
             
             # Normalize
             if np.max(pixel_array) != np.min(pixel_array):
@@ -177,30 +229,34 @@ class DICOMLoader:
         try:
             # DICOM 태그에서 Window Center 가져오기
             if hasattr(self.dataset, 'WindowCenter'):
-                if isinstance(self.dataset.WindowCenter, pydicom.multival.MultiValue):
-                    return int(self.dataset.WindowCenter[0])
-                else:
-                    return int(self.dataset.WindowCenter)
-            else:
-                # 히스토그램 기반 자동 계산
+                window_center = getattr(self.dataset, 'WindowCenter', None)
+                if window_center is not None:
+                    first_value = DICOMLoader._safe_get_first_value(window_center)
+                    if first_value is not None:
+                        return int(DICOMLoader._safe_float(first_value, 128.0))
+            # 히스토그램 기반 자동 계산
+            if self.original_pixel_array is not None:
                 return int(np.mean(self.original_pixel_array))
         except:
-            return 0
+            pass
+        return 0
             
     def get_default_window_width(self) -> int:
         """기본 Window Width 반환"""
         try:
             # DICOM 태그에서 Window Width 가져오기
             if hasattr(self.dataset, 'WindowWidth'):
-                if isinstance(self.dataset.WindowWidth, pydicom.multival.MultiValue):
-                    return int(self.dataset.WindowWidth[0])
-                else:
-                    return int(self.dataset.WindowWidth)
-            else:
-                # 히스토그램 기반 자동 계산
+                window_width = getattr(self.dataset, 'WindowWidth', None)
+                if window_width is not None:
+                    first_value = DICOMLoader._safe_get_first_value(window_width)
+                    if first_value is not None:
+                        return int(DICOMLoader._safe_float(first_value, 256.0))
+            # 히스토그램 기반 자동 계산
+            if self.original_pixel_array is not None:
                 return int(np.std(self.original_pixel_array) * 2)
         except:
-            return 255
+            pass
+        return 255
             
     def apply_window_level(self, image: np.ndarray, window_level: int, window_width: int) -> np.ndarray:
         """Window/Level 적용"""
@@ -208,10 +264,16 @@ class DICOMLoader:
             return None
             
         # Rescale slope/intercept 적용
-        if hasattr(self.dataset, 'RescaleSlope') and hasattr(self.dataset, 'RescaleIntercept'):
-            slope = float(self.dataset.RescaleSlope)
-            intercept = float(self.dataset.RescaleIntercept)
-            image = image * slope + intercept
+        try:
+            rescale_slope = getattr(self.dataset, 'RescaleSlope', None)
+            rescale_intercept = getattr(self.dataset, 'RescaleIntercept', None)
+            
+            if rescale_slope is not None and rescale_intercept is not None:
+                slope = DICOMLoader._safe_float(rescale_slope, 1.0)
+                intercept = DICOMLoader._safe_float(rescale_intercept, 0.0)
+                image = image * slope + intercept
+        except Exception as e:
+            print(f"Rescale 처리 중 오류: {e}")
             
         # Window/Level 적용
         min_val = window_level - window_width // 2
@@ -233,7 +295,7 @@ class DICOMLoader:
         try:
             if hasattr(self.dataset, 'PixelSpacing'):
                 spacing = self.dataset.PixelSpacing
-                return (float(spacing[0]), float(spacing[1]))
+                return (DICOMLoader._safe_float(spacing[0], 1.0), DICOMLoader._safe_float(spacing[1], 1.0))
         except:
             pass
         return None
@@ -292,7 +354,12 @@ class DICOMLoader:
         info = {}
         try:
             if hasattr(self.dataset, 'SeriesNumber'):
-                info['number'] = int(self.dataset.SeriesNumber)
+                series_number = getattr(self.dataset, 'SeriesNumber', None)
+                if series_number is not None:
+                    try:
+                        info['number'] = int(series_number)
+                    except (ValueError, TypeError):
+                        pass
             if hasattr(self.dataset, 'SeriesDescription'):
                 info['description'] = str(self.dataset.SeriesDescription)
             if hasattr(self.dataset, 'SeriesInstanceUID'):
@@ -306,7 +373,12 @@ class DICOMLoader:
         info = {}
         try:
             if hasattr(self.dataset, 'ImageNumber'):
-                info['number'] = int(self.dataset.ImageNumber)
+                image_number = getattr(self.dataset, 'ImageNumber', None)
+                if image_number is not None:
+                    try:
+                        info['number'] = int(image_number)
+                    except (ValueError, TypeError):
+                        pass
             if hasattr(self.dataset, 'ImageComments'):
                 info['comments'] = str(self.dataset.ImageComments)
             if hasattr(self.dataset, 'ImageType'):

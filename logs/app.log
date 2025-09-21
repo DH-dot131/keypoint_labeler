@@ -1,2 +1,4 @@
 2025-08-12 18:18:15,658 - __main__ - ERROR - 설정 저장 오류: Object of type WindowsPath is not JSON serializable
 2025-08-12 20:19:15,796 - __main__ - ERROR - 설정 로드 오류: Expecting value: line 2 column 20 (char 21)
+2025-09-21 23:51:33,500 - __main__ - ERROR - 파일 로드 오류: DICOM 로드 실패: float() argument must be a string or a real number, not 'NoneType'
+2025-09-21 23:51:54,425 - __main__ - ERROR - 파일 로드 오류: DICOM 로드 실패: float() argument must be a string or a real number, not 'NoneType'
